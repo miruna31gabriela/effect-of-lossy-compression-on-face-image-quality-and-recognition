@@ -17,11 +17,11 @@ TARGET_SIZES = [
 ]
 
 # Input folders
-REFERENCE_ROI = Path(r"C:\Users\Miruna\Desktop\Disertatie\Proiect\.ProjMihai\FERET\reference_roi")
-PROBE_ROI = Path(r"C:\Users\Miruna\Desktop\Disertatie\Proiect\.ProjMihai\FERET\probe_roi")
+REFERENCE_ROI = Path(r"/zhome/dd/9/202544/Documents/test/effect-of-lossy-compression-on-face-image-quality-and-recognition/FERET/reference_roi")
+PROBE_ROI = Path(r"/zhome/dd/9/202544/Documents/test/effect-of-lossy-compression-on-face-image-quality-and-recognition/FERET/probe_roi")
 
 # Output folders
-OUT_BASE = Path(r"C:\Users\Miruna\Desktop\Disertatie\Proiect\.ProjMihai\FERET\jpeg-xl-resized")
+OUT_BASE = Path(r"/zhome/dd/9/202544/Documents/test/effect-of-lossy-compression-on-face-image-quality-and-recognition/FERET/jpeg-xl-resized")
 OUT_REF = OUT_BASE / "reference"
 OUT_PROBE = OUT_BASE / "probe"
 OUT_REF.mkdir(parents=True, exist_ok=True)
