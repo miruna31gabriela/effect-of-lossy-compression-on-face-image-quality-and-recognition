@@ -1,4 +1,6 @@
 import os
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 import numpy as np
 import tensorflow as tf
 from PIL import Image
@@ -15,7 +17,7 @@ DATASET_PATH = '.ProjMihai/FERET'
 OUTPUT_DIR = '.ProjMihai/evaluation_results_feret'
 # The compression formats are now directories in the dataset path
 # The target sizes are also part of the structure, we will parse them
-COMPRESSION_FORMATS = ['jpeg-xl-resized', 'jpeg-2000-resized', 'jpeg-resized', 'png-resized']
+COMPRESSION_FORMATS = ['jpeg-xr-resized', 'jpeg-2000-resized', 'jpeg-resized', 'png-resized']
 
 def load_facenet_model():
     """Loads the FaceNet model."""
@@ -63,6 +65,12 @@ def get_embedding_from_path(model, image_path):
             pixels = imagecodecs.j2k_decode(encoded_data) # Pass the bytes to the decoder
             image = Image.fromarray(pixels)
             
+        elif file_ext == '.jxr':
+            with open(image_path, 'rb') as f:
+                encoded_data = f.read()
+            pixels = imagecodecs.jxr_decode(encoded_data)
+            image = Image.fromarray(pixels)
+            
         else:
             # For standard formats like PNG, PIL.Image.open() is fine
             image = Image.open(image_path)
@@ -74,7 +82,7 @@ def get_embedding_from_path(model, image_path):
     # The rest of the function remains the same
     return get_embedding(model, image)
 
-    
+
 def compress_image(image, target_size_kb, format='JPEG'):
     """Compresses an image to a target size using a specific format."""
     target_size_bytes = target_size_kb * 1024
@@ -263,93 +271,118 @@ def plot_results(results, title):
     plt.savefig(os.path.join(OUTPUT_DIR, f'{title}.png'))
     print(f"Plot saved to {os.path.join(OUTPUT_DIR, f'{title}.png')}")
 
-# This is the only function you need to replace.
+
 def plot_results_combined(mated_self_results, mated_other_results):
     """
-    Plots combined Mated-self and Mated-other results in the desired style.
-    This version shows individual data points with jitter for a better view of the distribution.
+    Plots combined Mated-self and Mated-other results exactly as described
+    in the research paper. This includes deterministic offsets for each format,
+    a "smear" of all data points, and opaque min/max markers.
     """
     plt.style.use('seaborn-v0_8-white')
-    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 10), sharex=True)
+    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(14, 11), sharex=True)
 
-    # Define a color palette similar to the target image
+    # Vibrant color palette to match the target image
     colors = {
-        'JPEG XL': '#4A4AFF',       # Blue
-        'JPEG 2000': '#FFA54A',     # Orange
-        'JPEG': '#29B3A9',          # Teal
-        'PNG-RESIZED': '#FF6B6B'    # Red/Salmon
+        'JPEG XL': '#4A4AFF',
+        'JPEG 2000': '#FFA54A',
+        'JPEG': '#29B3A9',
+        'PNG-RESIZED': '#FF6B6B',
+        'PNG': '#FF6B6B'
     }
+
+    # --- NEW: Create deterministic horizontal offsets for each format ---
+    # This separates the "streaks" of data for each compression type.
+    num_formats = len(COMPRESSION_FORMATS)
+    # Create evenly spaced offsets around the center (0.0)
+    offsets = np.linspace(-0.2, 0.2, num_formats) 
+    format_offsets = {fmt: offset for fmt, offset in zip(COMPRESSION_FORMATS, offsets)}
 
     titles = ['Mated-other:', 'Mated-self:']
     results_all = [mated_other_results, mated_self_results]
     
     handles = []
     labels = []
+    all_plot_sizes = set()
 
     for ax, title, results in zip(axes, titles, results_all):
-        ax.grid(False) # Turn off the grid
-        all_plot_sizes = set() # To collect all x-tick positions
+        ax.grid(False)
 
         for fmt in COMPRESSION_FORMATS:
             if not results.get(fmt):
                 continue
 
-            # Prepare data for plotting
             sorted_sizes = sorted(results[fmt].keys(), reverse=True)
             mean_scores = []
             plot_sizes_for_fmt = []
             
-            # Use a clean label for legend and color lookup
             clean_label = fmt.replace('-resized', '').upper()
-            color = colors.get(clean_label, 'gray') # Use gray as a fallback
+            color = colors.get(clean_label, 'gray')
+            offset = format_offsets.get(fmt, 0) # Get the specific offset for this format
 
             for size in sorted_sizes:
                 scores = results[fmt][size]
                 if scores:
-                    # Plot all individual scores with jitter
-                    # The jitter spreads the points horizontally to show density
-                    jittered_x = np.random.normal(size, 0.08, len(scores))
-                    ax.scatter(jittered_x, scores, alpha=0.25, color=color, marker='d', s=20, ec='none')
-                    
                     mean_scores.append(np.mean(scores))
                     plot_sizes_for_fmt.append(size)
                     all_plot_sizes.add(size)
+                    
+                    x_pos_base = size + offset
+
+                    # --- PLOT 1: The "smeared" individual data points ---
+                    # Add a very small random jitter to the base offset for the smear effect
+                    jittered_x = np.random.normal(x_pos_base, 0.03, len(scores))
+                    ax.scatter(jittered_x, scores, 
+                               alpha=0.1,          # Very transparent for the "smear"
+                               color=color,        
+                               marker='d',         
+                               s=40,               
+                               ec='none',          
+                               zorder=1)           # Draw in the background
+
+                    # --- PLOT 2: The opaque min/max markers ---
+                    min_score = np.min(scores)
+                    max_score = np.max(scores)
+                    ax.scatter([x_pos_base, x_pos_base], [min_score, max_score],
+                               marker='d',         # Rhombus shape
+                               color=color,
+                               s=45,               # Slightly larger to be visible
+                               alpha=1.0,          # Opaque
+                               zorder=3)           # Draw on top of everything
 
             if not plot_sizes_for_fmt:
                 continue
 
-            mean_scores = np.array(mean_scores)
+            # --- PLOT 3: The mean score line ---
+            # The x-coordinates for the line must also be offset
+            mean_line_x_coords = [s + offset for s in plot_sizes_for_fmt]
+            line, = ax.plot(mean_line_x_coords, mean_scores, 
+                            linestyle='-', 
+                            color=color, 
+                            linewidth=2.5,  
+                            zorder=2)       # Draw on top of smear, below min/max
 
-            # Plot the mean score line
-            line, = ax.plot(plot_sizes_for_fmt, mean_scores, marker='', linestyle='-', color=color, linewidth=2.5)
-            
-            # Collect handles and labels for the shared legend, avoiding duplicates
             if clean_label not in labels:
                 handles.append(line)
                 labels.append(clean_label)
 
-        ax.set_title(title, loc='left', fontsize=14, fontweight='bold')
-        ax.set_ylabel('Comparison score', fontsize=12)
-        ax.set_ylim(0.2 if title == 'Mated-other:' else 0.45, 1.0)
+        ax.set_title(title, loc='left', fontsize=16, fontweight='bold')
+        ax.set_ylabel('Comparison score', fontsize=14)
+        ax.set_ylim(0.15, 1.05)
 
-        # Set custom x-ticks for the collected sizes
-        sorted_ticks = sorted(list(all_plot_sizes), reverse=True)
-        ax.set_xticks(sorted_ticks)
-        ax.set_xticklabels([f'{s}kB' for s in sorted_ticks])
-
-
-    # Common settings for the figure
-    axes[1].set_xlabel('Target size', fontsize=12)
+    # Set custom x-ticks based on all data found
+    sorted_ticks = sorted(list(all_plot_sizes), reverse=True)
+    axes[1].set_xticks(sorted_ticks)
+    axes[1].set_xticklabels([f'{s}kB' for s in sorted_ticks], fontsize=12)
+    axes[1].set_xlabel('Target size', fontsize=14)
     
     # Create a single shared legend at the bottom
-    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.02), ncol=len(labels), fontsize=12)
+    fig.legend(handles, labels, loc='lower center', bbox_to_anchor=(0.5, 0.01), ncol=len(labels), fontsize=14)
     
-    # Adjust layout to prevent title/label overlap and make space for the legend
-    fig.tight_layout(rect=[0, 0.08, 1, 1]) # rect=[left, bottom, right, top]
+    fig.tight_layout(rect=[0, 0.06, 1, 1]) # Adjust for legend
 
-    out_path = os.path.join(OUTPUT_DIR, 'Combined_Mated_Results_Styled.png')
-    plt.savefig(out_path, dpi=150)
-    print(f"Styled combined plot saved to {out_path}")
+    out_path = os.path.join(OUTPUT_DIR, 'Final_Report_Figure.png')
+    plt.savefig(out_path, dpi=200)
+    print(f"Final report figure saved to {out_path}")
     plt.show()
 
 def main():
