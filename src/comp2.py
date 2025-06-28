@@ -26,13 +26,12 @@ FR_MODEL = "ArcFace"
 # --- DEFINE ALL METRICS TO BE TESTED ---
 # All FIQA models should be called via DeepFace.analyze for quality.
 FIQA_MODELS_TO_TEST = [
-    # Removing FIQA models as they are not supported in this deepface version
-    # 'CR-FIQA(S)',
-    # 'CR-FIQA(L)',
-    # 'MagFace',
-    # 'SER-FIQ',
-    # 'FaceQnet-v0',
-    # 'FaceQnet-v1'
+    'CR-FIQA(S)',
+    'CR-FIQA(L)',
+    'MagFace',
+    'SER-FIQ',
+    'FaceQnet-v0',
+    'FaceQnet-v1'
 ]
 
 # Combine all metrics into a single list for easier processing
@@ -125,11 +124,23 @@ for i, probe_filename in enumerate(all_probe_files):
                 grouped_scores[category]['Sharpness-2'].append(0)
 
         # ---------------------------------------------------------------- #
-        # --- FIQA MODEL CALCULATIONS REMOVED ---
-        # The deepface version does not support quality assessment through analyze()
-        # Only utility and sharpness metrics are calculated above
+        # --- FINAL CORRECTED FIQA MODEL CALCULATIONS ---
+        # With the library updated, we use the modern `quality_model` parameter
         # ---------------------------------------------------------------- #
-        # Note: FIQA models would be calculated here if supported
+        for model_name in FIQA_MODELS_TO_TEST:
+            try:
+                quality_result = DeepFace.analyze(
+                    img_path=probe_path,
+                    actions=['quality'],
+                    quality_model=model_name,
+                    enforce_detection=False
+                )
+                score = quality_result[0]['face_quality'] if quality_result else 0
+                grouped_scores[category][model_name].append(score)
+            except Exception as e:
+                # If a model fails, we print the error and score it 0.
+                print(f"ERROR on '{probe_filename}' with model '{model_name}': {e}")
+                grouped_scores[category][model_name].append(0)
     
     except Exception as e:
         print(f"CRITICAL ERROR processing file {probe_filename}: {e}")
